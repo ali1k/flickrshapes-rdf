@@ -1,0 +1,86 @@
+#!/usr/bin/env node
+
+if (process.argv.length < 3 || process.argv.length > 4) {
+  die('Flickr geojson to RDF\n' +
+      'converts a list of Flickr boundaries' +
+      'to RDF TTL Format.\n\n' +
+      'usage: geojson-rdf [file_or_uri_to_convert]');
+}
+var source = process.argv[2];
+var fs = require ('fs');
+var http = require ('http');
+var _ = require("lodash");
+var JSONStream = require('JSONStream');
+var es = require('event-stream');
+
+var getStream = function (source) {
+    var stream = fs.createReadStream(source, {encoding: 'utf8'}),
+    parser = JSONStream.parse('features');
+    return stream.pipe(parser);
+};
+//continents, countries, regions (states), counties, localities (cities), and neighbourhoods
+var flickrLevels = {
+'country': 1,
+'region': 2,
+'county': 3,
+'locality': 4,
+'neighbourhood': 5,
+};
+/* Process the specified input */
+function processor(node) {
+        var pType = node.geometry.type;
+        //ignore all the other details
+        if(pType === 'Polygon' || pType === 'MultiPolygon'){
+            //console.log(counter + ':');
+            output =  'geoR:' + node.id + ' a geoV:AdministrativeArea ; ';
+            output =  output + 'dcterms:title """' + node.properties.label + '""" ; ';
+            output =  output + 'geoV:level "'+flickrLevels[node.properties.place_type]+'"^^xsd:integer ; ';
+            output =  output + 'geoV:WOE """' + node.properties.woe_id + '""" ; ';
+            output =  output + 'geoV:placeID """' + node.properties.place_id + '""" ; ';
+            output =  output + 'dcterms:created "' + node.geometry.created + '" ; ';
+            output =  output + 'schema:downloadUrl <' + node.geometry.link.href+ '> ; ';
+            output =  output + 'ngeo:bbox "BOX2D(' + node.geometry.bbox[0] +' '+ node.geometry.bbox[1] + ',' + node.geometry.bbox[2] +' '+node.geometry.bbox[3] + ')"^^<http://www.openlinksw.com/schemas/virtrdf#Geometry> ; ';
+            output =  output + 'geoV:shapeType "' + pType+ '" ; ';
+            if(pType === 'Polygon'){
+                var tmpp = [];
+                _.forEach(node.geometry.coordinates[0], function(coordinate, ii) {
+                    tmpp.push(coordinate.join(' '));
+                });
+                output =  output + 'geo:geometry "POLYGON((' + tmpp.join(',') + '))"^^<http://www.openlinksw.com/schemas/virtrdf#Geometry> .';
+                //console.log('POLYGON((' + tmpp.join(',') + '))');
+            } else if(pType === 'MultiPolygon'){
+                var tmppTop = [];
+                _.forEach(node.geometry.coordinates, function(coordinateset, ii) {
+                    var tmpp = [];
+                    _.forEach(coordinateset[0], function(coordinate, iii) {
+                        tmpp.push(coordinate.join(' '));
+                    });
+                    tmppTop.push('((' + tmpp.join(',') + '))');
+                });
+                output =  output + 'geo:geometry "MULTIPOLYGON(' + tmppTop.join(',') + ')"^^<http://www.openlinksw.com/schemas/virtrdf#Geometry> .';
+                //console.log('MULTIPOLYGON(' + tmppTop.join(',') + ')');
+            }
+            console.log(output);
+        }
+}
+
+// Open HTTP stream if the source is a URL
+if (source.match(/^https?:\/\//))
+    http.request(source, processor).end();
+// Open a file stream otherwise
+else {
+    var prefixes = '@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . @prefix geo: <http://www.w3.org/2003/01/geo/wgs84_pos#> . @prefix edm: <http://www.europeana.eu/schemas/edm/> . @prefix foaf: <http://xmlns.com/foaf/0.1/> . @prefix schema: <http://schema.org/> . @prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> . @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> . @prefix skos: <http://www.w3.org/2004/02/skos/core#> . @prefix ngeo: <http://geovocab.org/geometry#> . @prefix dcterms: <http://purl.org/dc/terms/> . @prefix geoV: <http://geo.risis.eu/vocabulary/flickr/> . @prefix geoR: <http://geo.risis.eu/flickr/> .';
+    console.log(prefixes);
+    getStream(source)
+     .pipe(es.mapSync(function (data) {
+         _.forEach(data, function(node, i) {
+             processor(node);
+         });
+     }));
+}
+
+/* Halt execution with an error message. */
+function die(message) {
+  console.log(message);
+  process.exit(1);
+}
