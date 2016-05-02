@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+var countries = require('./countries');
+var usStates = require('./usStates');
 
 if (process.argv.length < 3 || process.argv.length > 4) {
   die('Flickr geojson to RDF\n' +
@@ -26,6 +28,35 @@ var flickrLevels = {
 'locality': 4,
 'neighbourhood': 5,
 };
+
+convertInputToISO3 = function(country) {
+    var inputCountry = country.toLowerCase().trim();
+    var predefined = {'aland islands': 'ALA', 'macau': 'MAC', 'the bahamas': 'BHS', 'bolivia': 'BOL', 'brunei': 'BRN', 'democratic republic of congo': 'COD', 'cape verde': 'CPV', 'falkland islands': 'FLK', 'federated states of micronesia': 'FSM', 'the gambia': 'GMB', 'ivory coast': 'CIV', 'north korea': 'PRK', 'south korea': 'KOR', 'macedonia': 'MKD', 'netherlands antilles': 'ANT', 'pitcairn islands': 'PCN', 'spratly islands': 'Spratly Islands', 'russia': 'RUS', 'saint helena': 'SHN', 'st. lucia': 'LCA', 'east timor': 'TLS', 'taiwan': 'TWN', 'tanzania': 'TZA', 'united kingdom': 'GBR', 'united states': 'USA', 'venezuela': 'VEN', 'british virgin islands': 'VGB', 'us virgin islands': 'VIR', 'vatican city': 'VAT', 'palestinian occupied territories': 'PSE', 'saint-barthélémy': 'BLM', 'saint-martin': 'MAF'};
+    var out = inputCountry;
+    if(predefined[inputCountry]){
+        out = predefined[inputCountry];
+        return out;
+    }
+    if(country.length == 3){
+        return out;
+    }else if(country.length == 2){
+        countries.listOfCountries.forEach((row)=>{
+            if(row['alpha-2'].toLowerCase() == country){
+                out = row['alpha-3'];
+                return out;
+            }
+        });
+    }else{
+        countries.listOfCountries.forEach((row)=>{
+            if(row['name'].toLowerCase() == inputCountry){
+                out = row['alpha-3'];
+                return out;
+            }
+        });
+    }
+    return out;
+}
+
 /* Process the specified input */
 function processor(node) {
         var pType = node.geometry.type;
@@ -33,9 +64,17 @@ function processor(node) {
         if(pType === 'Polygon' || pType === 'MultiPolygon'){
             //console.log(counter + ':');
             output =  'geoR:' + node.id + ' a geoV:AdministrativeArea ; ';
-            output =  output + 'dcterms:title """' + node.properties.label + '""" ; ';
             output =  output + 'geoV:level "'+flickrLevels[node.properties.place_type]+'"^^xsd:integer ; ';
             output =  output + 'geoV:WOE """' + node.properties.woe_id + '""" ; ';
+            //extract the country name
+            var tmpp = node.properties.label.split(',');
+            var countryName = tmpp [tmpp.length-1];
+            if(node.properties.place_type=='country'){
+                output =  output + 'dcterms:title """' + node.properties.label + '""" ; ';
+            }else{
+                output =  output + 'dcterms:title """' + node.properties.label.replace(',' + countryName,'') + '""" ; ';
+            }
+            output =  output + 'geoV:ISO """' + convertInputToISO3(countryName) + '""" ; ';
             output =  output + 'geoV:placeID """' + node.properties.place_id + '""" ; ';
             output =  output + 'dcterms:created "' + node.geometry.created + '" ; ';
             output =  output + 'schema:downloadUrl <' + node.geometry.link.href+ '> ; ';
